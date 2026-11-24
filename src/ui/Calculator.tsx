@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { purityLabel, type ItemId, type Purity } from '../data/gameData';
 import { ceilSafe, itemName, machineById, machineName, recipesFor } from '../core/db';
-import { buildTree, plan, type PlanOptions, type Target, type TreeNode } from '../core/planner';
+import { buildTree, perMachineRate, plan, type PlanOptions, type Target, type TreeNode } from '../core/planner';
 import { fmt, type Factory } from '../core/factory';
 import { ItemChip, ItemPicker, Rate, UtilBar, uid, usePersistent } from './common';
 
@@ -85,6 +85,7 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
               <button className="icon" title="Entfernen" onClick={() => setTargets(targets.filter((_, j) => j !== i))}>
                 ✕
               </button>
+              <MinHint rate={t.rate} perMachine={perMachineRate(t.item, opts)} onApply={(rate) => updateTarget(i, { rate })} />
             </div>
           ))}
         </div>
@@ -184,6 +185,11 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
                               <b>
                                 <Rate v={l.rate} />
                               </b>
+                              {l.machinesExact < 1 - 1e-6 && (
+                                <div className="min-note" title="Eine Maschine schafft bei 100 % Auslastung so viel">
+                                  (min. {fmt(l.perMachine, 2)}/min)
+                                </div>
+                              )}
                             </td>
                             <td className="chips">
                               {(consumers.get(l.item) ?? []).map((c) => (
@@ -278,6 +284,19 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
         </>
       )}
     </div>
+  );
+}
+
+/** Hint when the target is below what a single machine produces at full load. */
+function MinHint({ rate, perMachine, onApply }: { rate: number; perMachine?: number; onApply: (rate: number) => void }) {
+  if (!perMachine || rate <= 0 || rate >= perMachine - 1e-6) return null;
+  return (
+    <span className="min-hint">
+      Unter dem Minimum: 1 Maschine schafft {fmt(perMachine, 2)}/min (Auslastung {fmt((rate / perMachine) * 100, 0)} %)
+      <button className="link" onClick={() => onApply(Math.round(perMachine * 1000) / 1000)}>
+        auf {fmt(perMachine, 2)}/min setzen
+      </button>
+    </span>
   );
 }
 

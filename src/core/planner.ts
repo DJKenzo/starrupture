@@ -39,6 +39,8 @@ export interface PlanLine {
   depth: number;
   /** Rails needed to carry the output with the given rail capacity. */
   railsOut: number;
+  /** Items/min one machine produces at 100 %. */
+  perMachine: number;
 }
 
 export interface Plan {
@@ -144,11 +146,18 @@ export function plan(targets: Target[], opts: PlanOptions = {}): Plan {
       inputs,
       depth: depth.get(item) ?? 0,
       railsOut: ceilSafe(rate / railCapacity),
+      perMachine,
     });
   }
 
   lines.sort((a, b) => a.depth - b.depth);
   return { targets: valid, lines, imports, demand, totalPower, unknownPower, totalMachines, cycle };
+}
+
+/** Items/min of `item` one machine produces at 100 % with the chosen recipe (undefined if imported). */
+export function perMachineRate(item: ItemId, opts: PlanOptions = {}): number | undefined {
+  const r = chosenRecipe(item, opts);
+  return r ? outputRate(r, item, opts.purity ?? 'normal') : undefined;
 }
 
 export interface TreeNode {

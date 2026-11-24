@@ -45,6 +45,13 @@ describe('planner', () => {
     expect(ore.machines).toBe(1);
   });
 
+  it('reports per-machine rate for sub-minimum demand', () => {
+    const p = plan([{ item: 'rotor', rate: 1 }]);
+    const l = line(p, 'rotor');
+    expect(l.perMachine).toBeCloseTo(10);
+    expect(l.machinesExact).toBeCloseTo(0.1);
+  });
+
   it('respects purity for extractors', () => {
     const p = plan([{ item: 'wolfram-ore', rate: 240 }], { purity: 'impure' });
     expect(line(p, 'wolfram-ore').machines).toBe(4);
