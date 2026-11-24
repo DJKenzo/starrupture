@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/core/core.test.ts","./src/core/db.ts","./src/core/factory.ts","./src/core/planner.ts","./src/data/gameData.ts","./src/ui/App.tsx","./src/ui/Calculator.tsx","./src/ui/Database.tsx","./src/ui/FactoryPlanner.tsx","./src/ui/common.tsx"],"version":"5.9.3"}

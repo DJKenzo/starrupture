@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { recipes, items } from '../data/gameData';
 import { itemById, machineById, recipeById } from './db';
 import { plan, buildTree } from './planner';
-import { simulate, waterFill } from './factory';
+import { simulate } from './factory';
+import { recipes as allRecipes } from '../data/gameData';
 
 const line = (p: ReturnType<typeof plan>, item: string) => p.lines.find((l) => l.item === item)!;
 
@@ -83,17 +84,6 @@ describe('planner', () => {
   });
 });
 
-describe('waterFill', () => {
-  it('splits proportionally when scarce', () => {
-    expect(waterFill(60, [60, 60], [60, 60])).toEqual([30, 30]);
-  });
-  it('redistributes leftovers of capped consumers', () => {
-    const a = waterFill(60, [10, 60], [60, 60]);
-    expect(a[0]).toBeCloseTo(10);
-    expect(a[1]).toBeCloseTo(50);
-  });
-});
-
 describe('factory simulation', () => {
   it('detects a balanced chain', () => {
     const r = simulate({
@@ -167,5 +157,41 @@ describe('factory simulation', () => {
       sources: [],
     });
     expect(r.groups.find((g) => g.group.id === 'ore')!.status).toBe('surplus');
+  });
+
+  it('throttles producers whose output is not taken downstream', () => {
+    const r = simulate({
+      name: 't',
+      groups: [
+        { id: 'ore', recipeId: 'x-wolfram-ore', count: 1, purity: 'normal' }, // 120
+        { id: 'bar', recipeId: 'wolfram-bar', count: 1 }, // 60 bar, needs 60 ore
+        { id: 'wire', recipeId: 'wolfram-wire', count: 1 }, // needs 15 bar
+      ],
+      sources: [],
+    });
+    const g = (id: string) => r.groups.find((x) => x.group.id === id)!;
+    expect(g('wire').utilization).toBeCloseTo(1);
+    expect(g('bar').utilization).toBeCloseTo(0.25);
+    expect(g('bar').status).toBe('surplus');
+    expect(g('ore').utilization).toBeCloseTo(0.125);
+  });
+
+  it('never consumes more than is produced (random factories)', () => {
+    let seed = 42;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let n = 0; n < 60; n++) {
+      const groups = Array.from({ length: 2 + Math.floor(rnd() * 8) }, (_, i) => ({
+        id: 'g' + i,
+        recipeId: allRecipes[Math.floor(rnd() * allRecipes.length)].id,
+        count: 1 + Math.floor(rnd() * 4),
+        purity: 'normal' as const,
+      }));
+      const r = simulate({ name: 'r', groups, sources: [] });
+      for (const g of r.groups) {
+        expect(g.utilization).toBeGreaterThanOrEqual(-1e-9);
+        expect(g.utilization).toBeLessThanOrEqual(1 + 1e-9);
+      }
+      for (const b of r.balance) expect(b.consumed).toBeLessThanOrEqual(b.supply + 1e-6);
+    }
   });
 });

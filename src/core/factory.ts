@@ -1,5 +1,5 @@
 import type { ItemId, Purity } from '../data/gameData';
-import { ceilSafe, EPS, inputRate, machineById, outputRate, recipeById } from './db';
+import { ceilSafe, EPS, inputRate, itemName, machineById, outputRate, recipeById } from './db';
 
 /** A set of identical machines running the same recipe. */
 export interface FactoryGroup {
@@ -106,45 +106,53 @@ export function simulate(factory: Factory, railCapacity = 120): FactoryResult {
     n.out.forEach((_, k) => allItems.add(k));
   }
 
+  // Every node runs at u <= min(inLimit, outLimit):
+  //  inLimit  – what its inputs allow (supply side)
+  //  outLimit – what downstream consumers actually take (rails back up otherwise)
+  // Final products (no consumer in this factory) are never throttled.
+  let inLimit = nodes.map(() => 1);
+  let outLimit = nodes.map(() => 1);
   let u = nodes.map(() => 1);
-  let received = nodes.map((n) => new Map<ItemId, number>(n.need));
+  let limitedBy: (ItemId | undefined)[] = nodes.map(() => undefined);
+  const consumersOf = new Map<ItemId, number[]>();
+  nodes.forEach((n, k) => n.need.forEach((_, item) => consumersOf.set(item, [...(consumersOf.get(item) ?? []), k])));
 
-  /** Fraction a node could run at, judging only by its inputs other than `item`. */
-  const otherLimit = (k: number, item: ItemId) => {
-    let v = 1;
-    nodes[k].need.forEach((need, other) => {
-      if (other !== item) v = Math.min(v, (received[k].get(other) ?? 0) / need);
-    });
-    return v;
-  };
+  for (let iter = 0; iter < 1000; iter++) {
+    // potential supply: producers run as fast as their inputs allow
+    const potential = new Map<ItemId, number>(external);
+    nodes.forEach((n, k) => n.out.forEach((v, item) => potential.set(item, (potential.get(item) ?? 0) + v * inLimit[k])));
 
-  for (let iter = 0; iter < 500; iter++) {
-    const supply = new Map<ItemId, number>(external);
-    nodes.forEach((n, k) => n.out.forEach((v, item) => supply.set(item, (supply.get(item) ?? 0) + v * u[k])));
+    const fill = progressiveFill(nodes, potential, outLimit);
+    const nextU = fill.u;
 
-    const nextReceived = nodes.map(() => new Map<ItemId, number>());
-    for (const item of allItems) {
-      const consumers = nodes.map((n, k) => ({ k, need: n.need.get(item) ?? 0 })).filter((c) => c.need > 0);
-      if (!consumers.length) continue;
-      // each consumer only asks for what its other inputs allow it to process
-      const request = consumers.map((c) => c.need * otherLimit(c.k, item));
-      const alloc = waterFill(supply.get(item) ?? 0, request, consumers.map((c) => c.need));
-      consumers.forEach((c, j) => nextReceived[c.k].set(item, alloc[j]));
-    }
-
-    const nextU = nodes.map((n, k) => {
+    const nextIn = nodes.map((_, k) => (fill.limitedBy[k] ? nextU[k] : 1));
+    const nextOut = nodes.map((n) => {
       let v = 1;
-      n.need.forEach((need, item) => {
-        v = Math.min(v, (nextReceived[k].get(item) ?? 0) / need);
+      n.out.forEach((_, item) => {
+        const cons = consumersOf.get(item);
+        if (!cons) return; // final product
+        const pot = potential.get(item) ?? 0;
+        const used = cons.reduce((a, c) => a + (nodes[c].need.get(item) ?? 0) * nextU[c], 0);
+        if (pot > EPS) v = Math.min(v, used / pot);
       });
-      return v;
+      return Math.min(1, v);
     });
 
-    const delta = Math.max(0, ...nextU.map((v, k) => Math.abs(v - u[k])));
+    const delta = Math.max(
+      0,
+      ...nextIn.map((v, k) => Math.abs(v - inLimit[k])),
+      ...nextOut.map((v, k) => Math.abs(v - outLimit[k])),
+      ...nextU.map((v, k) => Math.abs(v - u[k])),
+    );
+    // light damping avoids ping-pong between up- and downstream limits
+    const damp = iter > 50 ? 0.5 : 1;
+    inLimit = nextIn.map((v, k) => inLimit[k] + (v - inLimit[k]) * damp);
+    outLimit = nextOut.map((v, k) => outLimit[k] + (v - outLimit[k]) * damp);
     u = nextU;
-    received = nextReceived;
+    limitedBy = fill.limitedBy;
     if (delta < 1e-10) break;
   }
+  const received = nodes.map((n, k) => new Map<ItemId, number>([...n.need].map(([item, need]) => [item, need * u[k]])));
 
   // --- results ---
   const supply = new Map<ItemId, number>(external);
@@ -190,36 +198,31 @@ export function simulate(factory: Factory, railCapacity = 120): FactoryResult {
     else totalPower += power * (u[k] > EPS ? 1 : 0);
 
     const inputs: InputState[] = [...n.need].map(([item, need]) => ({ item, need, received: received[k].get(item) ?? 0 }));
-    // limiting input: lowest received/need ratio; on ties prefer the globally scarcest item
-    let limitingInput: ItemId | undefined;
-    if (u[k] < 1 - 1e-6) {
-      const scarcity = (item: ItemId) => (supply.get(item) ?? 0) / (demand.get(item) || 1);
-      const sorted = [...inputs].sort(
-        (a, b) => a.received / a.need - b.received / b.need || scarcity(a.item) - scarcity(b.item),
-      );
-      const min = sorted[0].received / sorted[0].need;
-      limitingInput = sorted.filter((i) => i.received / i.need < min + 1e-6).sort((a, b) => scarcity(a.item) - scarcity(b.item))[0]
-        .item;
-    }
+    const limitingInput = limitedBy[k];
+    const starved = !!limitingInput && u[k] < 1 - 1e-6;
     const outputs = [...n.out].map(([item, max]) => ({ item, max, actual: max * u[k] }));
     const messages: string[] = [];
 
     let status: GroupStatus = 'ok';
     if (u[k] <= 1e-6) status = 'idle';
-    else if (u[k] < 1 - 1e-6) status = 'starved';
+    else if (starved) status = 'starved';
+    else if (u[k] < 1 - 1e-6) {
+      status = 'surplus';
+      const o = outputs[0];
+      messages.push(
+        `Überkapazität: nachgelagert werden nur ${fmt(o.actual, 2)}/min von max. ${fmt(o.max, 2)}/min abgenommen – Maschinen pausieren zeitweise.`,
+      );
+    }
     for (const o of outputs) {
       const b = balanceByItem.get(o.item)!;
       if (b.demand > b.maxSupply + 1e-6) {
         status = 'bottleneck';
-        messages.push(`Ausgabe reicht nicht: ${fmt(b.demand)}/min benötigt, max. ${fmt(b.maxSupply)}/min. +${b.missingMachines} Maschine(n) nötig.`);
-      } else if (!b.isFinal && b.supply > b.consumed + 1e-6 && status === 'ok') {
-        status = 'surplus';
-        messages.push(`Überschuss: ${fmt(b.supply - b.consumed)}/min werden nicht verbraucht.`);
+        messages.push(`Ausgabe reicht nicht: ${fmt(b.demand, 2)}/min benötigt, max. ${fmt(b.maxSupply, 2)}/min. +${b.missingMachines} Maschine(n) nötig.`);
       }
     }
     if (limitingInput) {
       const i = inputs.find((x) => x.item === limitingInput)!;
-      messages.unshift(`Zu wenig Input: bekommt ${fmt(i.received)}/min von ${fmt(i.need)}/min.`);
+      messages.unshift(`Zu wenig ${itemName(limitingInput)}: bekommt ${fmt(i.received, 2)}/min, braucht ${fmt(i.need, 2)}/min.`);
     }
 
     const railsNeeded = [
@@ -234,29 +237,67 @@ export function simulate(factory: Factory, railCapacity = 120): FactoryResult {
 }
 
 /**
- * Split `supply` between consumers. Each consumer j gets at most `request[j]`;
- * shares are proportional to `weight[j]`, leftovers are redistributed.
+ * Max-min fair allocation for one round: all nodes raise their utilisation
+ * together; when an item runs out, its consumers freeze at that level.
+ * `cap[k]` is the most node k may run at (downstream limit).
  */
-export function waterFill(supply: number, request: number[], weight: number[]): number[] {
-  const alloc = request.map(() => 0);
-  let remaining = supply;
-  let open = request.map((_, j) => j).filter((j) => request[j] > 0);
-  while (open.length && remaining > EPS) {
-    const w = open.reduce((s, j) => s + weight[j], 0);
-    const lambda = remaining / w;
-    const capped = open.filter((j) => request[j] - alloc[j] <= lambda * weight[j] + EPS);
-    if (!capped.length) {
-      for (const j of open) alloc[j] += lambda * weight[j];
-      remaining = 0;
+function progressiveFill(nodes: Node[], supply: Map<ItemId, number>, cap: number[]) {
+  const u = nodes.map(() => 0);
+  const limitedBy: (ItemId | undefined)[] = nodes.map(() => undefined);
+  const active = new Set(nodes.map((_, k) => k));
+  // nodes without inputs only depend on their cap
+  nodes.forEach((n, k) => {
+    if (n.need.size === 0) {
+      u[k] = cap[k];
+      active.delete(k);
+    }
+  });
+  const items = new Set<ItemId>();
+  nodes.forEach((n) => n.need.forEach((_, i) => items.add(i)));
+
+  const consumption = (item: ItemId, t: number) => {
+    let c = 0;
+    nodes.forEach((n, k) => {
+      const need = n.need.get(item);
+      if (need) c += need * (active.has(k) ? Math.min(t, cap[k]) : u[k]);
+    });
+    return c;
+  };
+  const tight = (t: number) => [...items].filter((i) => consumption(i, t) > (supply.get(i) ?? 0) + 1e-9);
+
+  let level = 0;
+  while (active.size) {
+    if (!tight(1).length) {
+      for (const k of active) u[k] = cap[k];
       break;
     }
-    for (const j of capped) {
-      remaining -= request[j] - alloc[j];
-      alloc[j] = request[j];
+    // smallest level where some item runs out
+    let lo = level;
+    let hi = 1;
+    for (let j = 0; j < 60; j++) {
+      const mid = (lo + hi) / 2;
+      if (tight(mid).length) hi = mid;
+      else lo = mid;
     }
-    open = open.filter((j) => !capped.includes(j));
+    level = lo;
+    const exhausted = tight(hi);
+    let froze = false;
+    for (const k of [...active]) {
+      const hit = exhausted.find((i) => nodes[k].need.has(i));
+      if (hit && cap[k] > level) {
+        u[k] = level;
+        limitedBy[k] = hit;
+        active.delete(k);
+        froze = true;
+      } else if (cap[k] <= level) {
+        u[k] = cap[k];
+        active.delete(k);
+        froze = true;
+      }
+    }
+    if (!froze) break; // numerical safety
   }
-  return alloc;
+  return { u, limitedBy };
 }
 
 export function fmt(x: number, digits = 1): string {
