@@ -126,7 +126,7 @@ td.warn { color: var(--starved); font-weight: 700; }
 .util-surplus .util-fill { background: var(--surplus); }
 .util-idle .util-fill { background: var(--idle); }
 
-.tree { font-size: 13px; display: flex; flex-direction: column; gap: 14px; }
+.tree { font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
 .tree-head { padding: 3px 6px; cursor: pointer; border-radius: 6px; border-left: 2px solid transparent; }
 .tree-head.has-children { border-left-color: var(--border); }
 .tree-head:hover { background: var(--panel-2); }

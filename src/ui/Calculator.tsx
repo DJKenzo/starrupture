@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { purityLabel, type ItemId, type Purity } from '../data/gameData';
-import { ceilSafe, itemName, machineById, machineName, recipesFor } from '../core/db';
-import { buildTree, perMachineRate, plan, type PlanOptions, type Target, type TreeNode } from '../core/planner';
+import { itemName, machineById, machineName, recipesFor } from '../core/db';
+import { perMachineRate, plan, type Plan, type PlanOptions, type Target } from '../core/planner';
 import { fmt, type Factory } from '../core/factory';
 import { ItemChip, ItemPicker, Rate, UtilBar, uid, usePersistent } from './common';
 
@@ -209,11 +209,7 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
                 </table>
               </div>
             ) : (
-              <div className="tree">
-                {result.targets.map((t, i) => (
-                  <TreeView key={i} node={buildTree(t.item, t.rate, opts)} purity={purity} isRoot />
-                ))}
-              </div>
+              <FlowTree result={result} consumers={consumers} purity={purity} />
             )}
           </section>
 
@@ -326,61 +322,78 @@ function RecipeSelect({ item, value, onChange }: { item: ItemId; value: string |
 }
 
 /**
- * Tree drawn bottom-up: inputs (and their inputs) are shown above the item
- * they feed into, so reading top to bottom follows the material flow from
- * raw resources to the desired product.
+ * Merged "waterfall" tree: every item appears once with its total rate and
+ * machine count. Inputs come before the products they feed; each item is
+ * indented one step left of the product furthest downstream it feeds into,
+ * so the desired products sit at the bottom right.
  */
-/** Longest path from a node down to a raw resource (leaf = 0). */
-function treeHeight(n: TreeNode): number {
-  return n.children.length ? 1 + Math.max(...n.children.map(treeHeight)) : 0;
-}
-
-function TreeView({
-  node,
+function FlowTree({
+  result,
+  consumers,
   purity,
-  isRoot,
-  parent,
-  depth = 0,
-  maxDepth = treeHeight(node),
 }: {
-  node: TreeNode;
+  result: Plan;
+  consumers: Map<ItemId, { item: ItemId; rate: number }[]>;
   purity: Purity;
-  isRoot?: boolean;
-  parent?: ItemId;
-  depth?: number;
-  maxDepth?: number;
 }) {
-  const [open, setOpen] = useState(true);
-  const m = node.recipe ? machineById.get(node.recipe.machine) : undefined;
-  // mirrored tree ("waterfall"): the target sits furthest right, every input
-  // exactly one step left of the product it feeds into
-  const indent = (maxDepth - depth) * 26;
+  const lineByItem = new Map(result.lines.map((l) => [l.item, l]));
+  const importByItem = new Map(result.imports.map((f) => [f.item, f]));
+  const targetRate = new Map<ItemId, number>();
+  for (const t of result.targets) targetRate.set(t.item, (targetRate.get(t.item) ?? 0) + t.rate);
+
+  // post-order DFS from the targets: inputs first, each item once
+  const order: ItemId[] = [];
+  const seen = new Set<ItemId>();
+  const visit = (item: ItemId) => {
+    if (seen.has(item)) return;
+    seen.add(item);
+    for (const f of lineByItem.get(item)?.inputs ?? []) visit(f.item);
+    order.push(item);
+  };
+  for (const t of result.targets) visit(t.item);
+
+  // steps to the furthest target (consumers are always later in `order`)
+  const dist = new Map<ItemId, number>();
+  for (const item of [...order].reverse()) {
+    const cs = consumers.get(item) ?? [];
+    dist.set(item, cs.length ? Math.max(...cs.map((c) => (dist.get(c.item) ?? 0) + 1)) : 0);
+  }
+  const maxDist = Math.max(0, ...dist.values());
+
   return (
-    <div className={`tree-node${isRoot ? ' tree-root' : ''}`}>
-      {open && node.children.length > 0 && (
-        <div className="tree-children">
-          {node.children.map((c, i) => (
-            <TreeView key={i} node={c} purity={purity} parent={node.item} depth={depth + 1} maxDepth={maxDepth} />
-          ))}
-        </div>
-      )}
-      <div
-        className={`tree-head${isRoot ? ' target-line' : ''}${node.children.length ? ' has-children' : ''}`}
-        style={{ marginLeft: indent }}
-        onClick={() => setOpen(!open)}
-      >
-        {node.children.length > 0 ? <span className="caret">{open ? '▴' : '▸'}</span> : <span className="caret">•</span>}
-        {isRoot && <span className="target-mark">★ </span>}
-        <b>{itemName(node.item)}</b> <Rate v={node.rate} />
-        {m && (
-          <span className="muted">
-            {' '}
-            · {ceilSafe(node.machinesExact)}× {machineName(m.id)} ({fmt(node.machinesExact, 2)}){node.recipe?.purityDependent ? `, ${purityLabel[purity]}` : ''}
-          </span>
-        )}
-        {!node.recipe && <span className="muted"> · Import</span>}
-        {parent && <span className="tree-to"> → {itemName(parent)}</span>}
-      </div>
+    <div className="tree">
+      {order.map((item) => {
+        const l = lineByItem.get(item);
+        const imp = importByItem.get(item);
+        const isTarget = targetRate.has(item);
+        const m = l ? machineById.get(l.recipe.machine) : undefined;
+        const rate = l?.rate ?? imp?.rate ?? 0;
+        return (
+          <div
+            key={item}
+            className={`tree-head${isTarget ? ' target-line' : ''}${l?.inputs.length ? ' has-children' : ''}`}
+            style={{ marginLeft: (maxDist - (dist.get(item) ?? 0)) * 26 }}
+          >
+            <span className="caret">{l?.inputs.length ? '▸' : '•'}</span>
+            {isTarget && <span className="target-mark">★ </span>}
+            <b>{itemName(item)}</b> <Rate v={rate} />
+            {l && m && (
+              <span className="muted">
+                {' '}
+                · {l.machines}× {machineName(m.id)} ({fmt(l.machinesExact, 2)}){l.recipe.purityDependent ? `, ${purityLabel[purity]}` : ''}
+              </span>
+            )}
+            {!l && <span className="muted"> · Import</span>}
+            {(consumers.get(item) ?? []).length > 0 && (
+              <span className="tree-to">
+                {' '}
+                → {(consumers.get(item) ?? []).map((c) => `${itemName(c.item)} ${fmt(c.rate, 2)}`).join(', ')}
+              </span>
+            )}
+            {isTarget && <span className="tree-to"> → Ziel {fmt(targetRate.get(item)!, 2)}</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }
