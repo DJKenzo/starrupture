@@ -335,17 +335,32 @@ function treeHeight(n: TreeNode): number {
   return n.children.length ? 1 + Math.max(...n.children.map(treeHeight)) : 0;
 }
 
-function TreeView({ node, purity, isRoot, parent }: { node: TreeNode; purity: Purity; isRoot?: boolean; parent?: ItemId }) {
+function TreeView({
+  node,
+  purity,
+  isRoot,
+  parent,
+  depth = 0,
+  maxDepth = treeHeight(node),
+}: {
+  node: TreeNode;
+  purity: Purity;
+  isRoot?: boolean;
+  parent?: ItemId;
+  depth?: number;
+  maxDepth?: number;
+}) {
   const [open, setOpen] = useState(true);
   const m = node.recipe ? machineById.get(node.recipe.machine) : undefined;
-  // raw resources sit on the left; every product is indented further than all of its inputs
-  const indent = treeHeight(node) * 26;
+  // mirrored tree ("waterfall"): the target sits furthest right, every input
+  // exactly one step left of the product it feeds into
+  const indent = (maxDepth - depth) * 26;
   return (
     <div className={`tree-node${isRoot ? ' tree-root' : ''}`}>
       {open && node.children.length > 0 && (
         <div className="tree-children">
           {node.children.map((c, i) => (
-            <TreeView key={i} node={c} purity={purity} parent={node.item} />
+            <TreeView key={i} node={c} purity={purity} parent={node.item} depth={depth + 1} maxDepth={maxDepth} />
           ))}
         </div>
       )}
