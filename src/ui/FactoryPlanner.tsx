@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { purityLabel, type ItemId, type Purity } from '../data/gameData';
-import { defaultRecipe, itemName, machineById, machineName, recipeById, recipesFor } from '../core/db';
+import { defaultRecipe, itemName, machineById, machineName, recipeById, recipesFor, recipeName } from '../core/db';
 import { fmt, simulate, type Factory, type FactoryGroup, type GroupResult, type GroupStatus } from '../core/factory';
 import { downloadJson, ItemChip, ItemPicker, pickJsonFile, UtilBar, uid } from './common';
 
@@ -380,7 +380,7 @@ function GroupCard({
         <div>
           <div className="group-title">{itemName(r.outputs[0].item)}</div>
           <div className="muted small">
-            {m?.name} · {r.time}s/Zyklus
+            {machineName(r.machine)} · {r.time}s/Zyklus
           </div>
         </div>
         <button className="icon" title="Entfernen" onClick={onRemove}>
@@ -408,7 +408,7 @@ function GroupCard({
         <select className="small" value={r.id} onChange={(e) => onRecipe(e.target.value)}>
           {alternatives.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name} ({machineName(a.machine)})
+              {recipeName(a)} ({machineName(a.machine)})
             </option>
           ))}
         </select>

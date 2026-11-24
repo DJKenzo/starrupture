@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { recipes, items } from '../data/gameData';
+import { recipes, items, machines } from '../data/gameData';
+import { itemNamesDe, machineNamesDe } from '../data/i18n';
 import { itemById, machineById, recipeById } from './db';
 import { plan, buildTree } from './planner';
 import { simulate } from './factory';
@@ -14,6 +15,10 @@ describe('game data', () => {
       for (const s of [...r.inputs, ...r.outputs]) expect(itemById.has(s.item), `${r.id}: ${s.item}`).toBe(true);
       expect(r.time).toBeGreaterThan(0);
     }
+  });
+  it('has a German name for every item and machine', () => {
+    for (const i of items) expect(itemNamesDe[i.id], i.id).toBeTruthy();
+    for (const m of machines) expect(machineNamesDe[m.id], m.id).toBeTruthy();
   });
   it('has unique ids', () => {
     expect(new Set(recipes.map((r) => r.id)).size).toBe(recipes.length);

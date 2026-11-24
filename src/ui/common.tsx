@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { items, type ItemId } from '../data/gameData';
-import { itemName } from '../core/db';
+import { itemName, itemNameEn, itemSearchText } from '../core/db';
 import { fmt } from '../core/factory';
 
 /** useState backed by localStorage (fails silently when storage is unavailable). */
@@ -23,7 +23,6 @@ export function usePersistent<T>(key: string, initial: T): [T, (v: T | ((p: T) =
   return [value, setValue];
 }
 
-const sortedItems = [...items].sort((a, b) => a.name.localeCompare(b.name));
 
 /** Searchable item picker (text input + datalist). */
 export function ItemPicker({
@@ -40,7 +39,10 @@ export function ItemPicker({
   const listId = useId();
   const [text, setText] = useState(value ? itemName(value) : '');
   useEffect(() => setText(value ? itemName(value) : ''), [value]);
-  const options = sortedItems.filter((i) => !filter || filter(i.id));
+  const options = items
+    .filter((i) => !filter || filter(i.id))
+    .map((i) => ({ id: i.id, label: itemName(i.id) }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'de'));
   return (
     <>
       <input
@@ -50,14 +52,18 @@ export function ItemPicker({
         placeholder={placeholder}
         onChange={(e) => {
           setText(e.target.value);
-          const hit = options.find((i) => i.name.toLowerCase() === e.target.value.trim().toLowerCase());
+          const t = e.target.value.trim().toLowerCase();
+          // exact match on German or English name, else the only partial match
+          const exact = options.find((i) => i.label.toLowerCase() === t || itemNameEn(i.id).toLowerCase() === t);
+          const partial = t.length > 2 ? options.filter((i) => itemSearchText(i.id).includes(t)) : [];
+          const hit = exact ?? (partial.length === 1 ? partial[0] : undefined);
           if (hit) onChange(hit.id);
         }}
         onFocus={(e) => e.target.select()}
       />
       <datalist id={listId}>
         {options.map((i) => (
-          <option key={i.id} value={i.name} />
+          <option key={i.id} value={i.label} label={itemNameEn(i.id) !== i.label ? itemNameEn(i.id) : undefined} />
         ))}
       </datalist>
     </>

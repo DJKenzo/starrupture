@@ -278,7 +278,7 @@ function TreeView({ node, purity }: { node: TreeNode; purity: Purity }) {
         {m && (
           <span className="muted">
             {' '}
-            · {ceilSafe(node.machinesExact)}× {m.name} ({fmt(node.machinesExact, 2)}){node.recipe?.purityDependent ? `, ${purityLabel[purity]}` : ''}
+            · {ceilSafe(node.machinesExact)}× {machineName(m.id)} ({fmt(node.machinesExact, 2)}){node.recipe?.purityDependent ? `, ${purityLabel[purity]}` : ''}
           </span>
         )}
         {!node.recipe && <span className="muted"> · Import</span>}

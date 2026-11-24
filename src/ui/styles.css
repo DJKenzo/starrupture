@@ -44,7 +44,7 @@ small, .small { font-size: 12px; }
 .muted { color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .num small { color: var(--muted); margin-left: 1px; }
-.r { text-align: right; }
+.r { text-align: right; white-space: nowrap; }
 .big { font-size: 15px; }
 
 button, select, input {

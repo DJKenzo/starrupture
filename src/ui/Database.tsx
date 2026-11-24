@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { items, machines, type ItemId, type Recipe } from '../data/gameData';
-import { itemById, itemName, machineName, recipesFor, stackRate, usagesOf } from '../core/db';
+import { itemById, itemName, itemNameEn, itemSearchText, machineName, recipeName, recipesFor, stackRate, usagesOf } from '../core/db';
 import { fmt } from '../core/factory';
 
 export function Database({ selected, onSelect, onPlan }: { selected: ItemId; onSelect: (id: ItemId) => void; onPlan: (id: ItemId) => void }) {
   const [q, setQ] = useState('');
   const [machine, setMachine] = useState('');
   const list = items
-    .filter((i) => i.name.toLowerCase().includes(q.toLowerCase()))
+    .filter((i) => itemSearchText(i.id).includes(q.toLowerCase()))
     .filter((i) => !machine || (recipesFor.get(i.id) ?? []).some((r) => r.machine === machine))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => itemName(a.id).localeCompare(itemName(b.id), 'de'));
   const item = itemById.get(selected);
   const producing = recipesFor.get(selected) ?? [];
   const using = usagesOf.get(selected) ?? [];
@@ -22,14 +22,14 @@ export function Database({ selected, onSelect, onPlan }: { selected: ItemId; onS
           <option value="">Alle Maschinen</option>
           {machines.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name}
+              {machineName(m.id)}
             </option>
           ))}
         </select>
         <ul>
           {list.map((i) => (
             <li key={i.id} className={i.id === selected ? 'on' : ''} onClick={() => onSelect(i.id)}>
-              {i.name}
+              {itemName(i.id)}
               {i.raw && <small className="muted"> roh</small>}
             </li>
           ))}
@@ -39,7 +39,10 @@ export function Database({ selected, onSelect, onPlan }: { selected: ItemId; onS
         {item && (
           <section className="card">
             <div className="row spread">
-              <h2>{item.name}</h2>
+              <h2>
+                {itemName(item.id)}
+                {itemName(item.id) !== itemNameEn(item.id) && <small className="muted"> · im Spiel: {itemNameEn(item.id)}</small>}
+              </h2>
               {producing.length > 0 && (
                 <button className="primary" onClick={() => onPlan(item.id)}>
                   Im Rechner planen →
@@ -67,7 +70,7 @@ function RecipeCard({ r, onSelect }: { r: Recipe; onSelect: (id: ItemId) => void
   return (
     <div className="recipe">
       <div className="recipe-head">
-        <b>{r.name}</b> <span className="muted">· {machineName(r.machine)} · {r.time}s</span>
+        <b>{recipeName(r)}</b> <span className="muted">· {machineName(r.machine)} · {r.time}s</span>
         {r.alternate && <span className="badge surplus">Alternative</span>}
         {r.uncertain && <span className="badge starved" title={r.note}>unsicher</span>}
       </div>

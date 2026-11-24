@@ -5,6 +5,8 @@ import { Calculator } from './Calculator';
 import { FactoryPlanner } from './FactoryPlanner';
 import { Database } from './Database';
 import { usePersistent } from './common';
+import { setNameMode } from '../core/db';
+import { nameModeLabel, type NameMode } from '../data/i18n';
 
 type Tab = 'calc' | 'factory' | 'db';
 
@@ -16,6 +18,10 @@ export function App() {
   const [activeFactory, setActiveFactory] = usePersistent('factories.active', 0);
   const [dbItem, setDbItem] = useState<ItemId>('rotor');
   const [planRequest, setPlanRequest] = useState<{ item: ItemId; n: number }>();
+
+  const [nameMode, setNameModeState] = usePersistent<NameMode>('set.names', 'de');
+  // names are resolved during render, so set the mode before children render
+  setNameMode(nameMode);
 
   const rail = railTiers.find((r) => r.id === railId) ?? railTiers[0];
 
@@ -41,6 +47,16 @@ export function App() {
           </button>
         </nav>
         <div className="settings">
+          <label>
+            Namen
+            <select value={nameMode} onChange={(e) => setNameModeState(e.target.value as NameMode)}>
+              {(Object.keys(nameModeLabel) as NameMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {nameModeLabel[m]}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             Erz-Vorkommen
             <select value={purity} onChange={(e) => setPurity(e.target.value as Purity)}>
@@ -107,7 +123,7 @@ export function App() {
 
       <footer className="muted small">
         Daten: <a href="https://starrupture.wiki.gg" target="_blank" rel="noreferrer">starrupture.wiki.gg</a> (Early Access, Stand Nov. 2026).
-        Mit „?“ markierte Rezepte sind im Wiki widersprüchlich. Fan-Projekt, nicht mit Creepy Jar verbunden.
+        Mit „?“ markierte Rezepte sind im Wiki widersprüchlich. Deutsche Namen sind inoffizielle Übersetzungen – unter „Namen“ lassen sich die englischen Spielnamen einblenden. Fan-Projekt, nicht mit Creepy Jar verbunden.
       </footer>
     </div>
   );
