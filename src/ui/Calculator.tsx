@@ -330,9 +330,16 @@ function RecipeSelect({ item, value, onChange }: { item: ItemId; value: string |
  * they feed into, so reading top to bottom follows the material flow from
  * raw resources to the desired product.
  */
+/** Longest path from a node down to a raw resource (leaf = 0). */
+function treeHeight(n: TreeNode): number {
+  return n.children.length ? 1 + Math.max(...n.children.map(treeHeight)) : 0;
+}
+
 function TreeView({ node, purity, isRoot, parent }: { node: TreeNode; purity: Purity; isRoot?: boolean; parent?: ItemId }) {
   const [open, setOpen] = useState(true);
   const m = node.recipe ? machineById.get(node.recipe.machine) : undefined;
+  // raw resources sit on the left; every product is indented further than all of its inputs
+  const indent = treeHeight(node) * 26;
   return (
     <div className={`tree-node${isRoot ? ' tree-root' : ''}`}>
       {open && node.children.length > 0 && (
@@ -342,7 +349,11 @@ function TreeView({ node, purity, isRoot, parent }: { node: TreeNode; purity: Pu
           ))}
         </div>
       )}
-      <div className={`tree-head${isRoot ? ' target-line' : ''}`} onClick={() => setOpen(!open)}>
+      <div
+        className={`tree-head${isRoot ? ' target-line' : ''}${node.children.length ? ' has-children' : ''}`}
+        style={{ marginLeft: indent }}
+        onClick={() => setOpen(!open)}
+      >
         {node.children.length > 0 ? <span className="caret">{open ? '▴' : '▸'}</span> : <span className="caret">•</span>}
         {isRoot && <span className="target-mark">★ </span>}
         <b>{itemName(node.item)}</b> <Rate v={node.rate} />

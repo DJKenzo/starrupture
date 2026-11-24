@@ -127,9 +127,10 @@ td.warn { color: var(--starved); font-weight: 700; }
 .util-idle .util-fill { background: var(--idle); }
 
 .tree { font-size: 13px; display: flex; flex-direction: column; gap: 14px; }
-.tree-head { padding: 3px 6px; cursor: pointer; border-radius: 6px; }
+.tree-head { padding: 3px 6px; cursor: pointer; border-radius: 6px; border-left: 2px solid transparent; }
+.tree-head.has-children { border-left-color: var(--border); }
 .tree-head:hover { background: var(--panel-2); }
-.tree-children { margin-left: 9px; padding-left: 12px; border-left: 1px dashed var(--border); }
+.tree-children { }
 .tree-to { color: var(--muted); font-size: 12px; }
 .tree-root > .tree-head { margin-top: 4px; }
 
