@@ -126,9 +126,19 @@ td.warn { color: var(--starved); font-weight: 700; }
 .util-surplus .util-fill { background: var(--surplus); }
 .util-idle .util-fill { background: var(--idle); }
 
-.tree { font-size: 13px; }
-.tree-head { padding: 3px 0; cursor: pointer; }
+.tree { font-size: 13px; display: flex; flex-direction: column; gap: 14px; }
+.tree-head { padding: 3px 6px; cursor: pointer; border-radius: 6px; }
+.tree-head:hover { background: var(--panel-2); }
 .tree-children { margin-left: 9px; padding-left: 12px; border-left: 1px dashed var(--border); }
+.tree-to { color: var(--muted); font-size: 12px; }
+.tree-root > .tree-head { margin-top: 4px; }
+
+/* desired product highlight */
+.target-line { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+tr.target-line td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.target-mark { color: var(--accent); }
+.chip.goal { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+tr.stage-row td { background: var(--panel-2); color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; padding: 5px 8px; }
 .caret { display: inline-block; width: 14px; color: var(--muted); }
 
 .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }

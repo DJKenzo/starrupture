@@ -31,7 +31,25 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
   const updateTarget = (i: number, t: Partial<Target>) => setTargets(targets.map((x, j) => (j === i ? { ...x, ...t } : x)));
 
   const extractorLines = result.lines.filter((l) => machineById.get(l.recipe.machine)?.kind === 'extractor');
-  const productionLines = result.lines.filter((l) => machineById.get(l.recipe.machine)?.kind !== 'extractor');
+  const targetItems = new Set(result.targets.map((t) => t.item));
+  const maxDepth = Math.max(0, ...result.lines.map((l) => l.depth));
+
+  // flow order: raw resources first, desired products last
+  const stages = new Map<number, typeof result.lines>();
+  for (const l of result.lines) stages.set(l.depth, [...(stages.get(l.depth) ?? []), l]);
+  const stageOrder = [...stages.keys()].sort((a, b) => b - a);
+
+  // where does each item go?
+  const consumers = new Map<ItemId, { item: ItemId; rate: number }[]>();
+  for (const l of result.lines) {
+    for (const f of l.inputs) consumers.set(f.item, [...(consumers.get(f.item) ?? []), { item: l.item, rate: f.rate }]);
+  }
+  const stageLabel = (depth: number) => {
+    const n = maxDepth - depth + 1;
+    if (depth === 0) return `Stufe ${n} · Ziel`;
+    if (depth === maxDepth) return `Stufe ${n} · Rohstoffe`;
+    return `Stufe ${n}`;
+  };
 
   const toFactory = () => {
     onCreateFactory({
@@ -116,57 +134,78 @@ export function Calculator({ purity, railCapacity, railName, onCreateFactory, fo
                     <tr>
                       <th>Produkt</th>
                       <th>Maschine / Rezept</th>
-                      <th className="r">Bedarf</th>
+                      <th>Benötigt (Input)</th>
                       <th className="r">Maschinen</th>
                       <th>Auslastung</th>
-                      <th>Benötigt (Input)</th>
+                      <th className="r">Menge</th>
+                      <th>Geht an</th>
                       <th className="r">Rails</th>
                       <th className="r">Strom</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {productionLines.map((l) => (
-                      <tr key={l.item}>
-                        <td>
-                          <a className="item-link" onClick={() => focusItem?.(l.item)}>
-                            {itemName(l.item)}
-                          </a>
-                          {l.recipe.uncertain && (
-                            <span className="warn-dot" title={l.recipe.note ?? 'Werte unsicher'}>
-                              ?
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <RecipeSelect item={l.item} value={choice[l.item]} onChange={(v) => setChoice({ ...choice, [l.item]: v })} />
-                        </td>
-                        <td className="r">
-                          <Rate v={l.rate} />
-                        </td>
-                        <td className="r">
-                          <b className="big">{l.machines}×</b> <small className="muted">({fmt(l.machinesExact, 2)})</small>
-                        </td>
-                        <td>
-                          <UtilBar value={l.utilization} />
-                        </td>
-                        <td className="chips">
-                          {l.inputs.map((f) => (
-                            <ItemChip key={f.item} item={f.item} rate={f.rate} />
-                          ))}
-                        </td>
-                        <td className={`r ${l.railsOut > 1 ? 'warn' : ''}`} title={`${fmt(l.rate)}/min bei ${railCapacity}/min pro Rail`}>
-                          {l.railsOut}
-                        </td>
-                        <td className="r">{l.power == null ? '?' : `${fmt(l.power)} MW`}</td>
+                  {stageOrder.map((depth) => (
+                    <tbody key={depth}>
+                      <tr className="stage-row">
+                        <td colSpan={9}>{stageLabel(depth)}</td>
                       </tr>
-                    ))}
-                  </tbody>
+                      {stages.get(depth)!.map((l) => {
+                        const isTarget = targetItems.has(l.item);
+                        const extractor = machineById.get(l.recipe.machine)?.kind === 'extractor';
+                        return (
+                          <tr key={l.item} className={isTarget ? 'target-line' : ''}>
+                            <td>
+                              {isTarget && <span className="target-mark">★ </span>}
+                              <a className="item-link" onClick={() => focusItem?.(l.item)}>
+                                {itemName(l.item)}
+                              </a>
+                              {l.recipe.uncertain && (
+                                <span className="warn-dot" title={l.recipe.note ?? 'Werte unsicher'}>
+                                  ?
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <RecipeSelect item={l.item} value={choice[l.item]} onChange={(v) => setChoice({ ...choice, [l.item]: v })} />
+                            </td>
+                            <td className="chips">
+                              {extractor ? (
+                                <span className="muted small">Abbau{l.recipe.purityDependent ? ` (${purityLabel[purity]})` : ''}</span>
+                              ) : (
+                                l.inputs.map((f) => <ItemChip key={f.item} item={f.item} rate={f.rate} />)
+                              )}
+                            </td>
+                            <td className="r">
+                              <b className="big">{l.machines}×</b> <small className="muted">({fmt(l.machinesExact, 2)})</small>
+                            </td>
+                            <td>
+                              <UtilBar value={l.utilization} />
+                            </td>
+                            <td className="r">
+                              <b>
+                                <Rate v={l.rate} />
+                              </b>
+                            </td>
+                            <td className="chips">
+                              {(consumers.get(l.item) ?? []).map((c) => (
+                                <ItemChip key={c.item} item={c.item} rate={c.rate} />
+                              ))}
+                              {isTarget && <span className="chip goal">Ziel {fmt(result.targets.filter((t) => t.item === l.item).reduce((a, t) => a + t.rate, 0), 2)}</span>}
+                            </td>
+                            <td className={`r ${l.railsOut > 1 ? 'warn' : ''}`} title={`${fmt(l.rate)}/min bei ${railCapacity}/min pro Rail`}>
+                              {l.railsOut}
+                            </td>
+                            <td className="r">{l.power == null ? '?' : `${fmt(l.power)} MW`}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  ))}
                 </table>
               </div>
             ) : (
               <div className="tree">
                 {result.targets.map((t, i) => (
-                  <TreeView key={i} node={buildTree(t.item, t.rate, opts)} purity={purity} />
+                  <TreeView key={i} node={buildTree(t.item, t.rate, opts)} purity={purity} isRoot />
                 ))}
               </div>
             )}
@@ -259,7 +298,7 @@ function RecipeSelect({ item, value, onChange }: { item: ItemId; value: string |
       {options.map((r) => (
         <option key={r.id} value={r.id}>
           {machineName(r.machine)}
-          {r.alternate ? ' – Alternative' : ''} · {r.inputs.map((i) => `${i.amount} ${itemName(i.item)}`).join(' + ')} → {r.outputs[0].amount} in {r.time}s
+          {r.alternate ? ' – Alternative' : ''} · {r.inputs.length ? r.inputs.map((i) => `${i.amount} ${itemName(i.item)}`).join(' + ') : 'Abbau'} → {r.outputs[0].amount} in {r.time}s
         </option>
       ))}
       <option value="__import">Nicht produzieren (Import)</option>
@@ -267,13 +306,26 @@ function RecipeSelect({ item, value, onChange }: { item: ItemId; value: string |
   );
 }
 
-function TreeView({ node, purity }: { node: TreeNode; purity: Purity }) {
+/**
+ * Tree drawn bottom-up: inputs (and their inputs) are shown above the item
+ * they feed into, so reading top to bottom follows the material flow from
+ * raw resources to the desired product.
+ */
+function TreeView({ node, purity, isRoot, parent }: { node: TreeNode; purity: Purity; isRoot?: boolean; parent?: ItemId }) {
   const [open, setOpen] = useState(true);
   const m = node.recipe ? machineById.get(node.recipe.machine) : undefined;
   return (
-    <div className="tree-node">
-      <div className="tree-head" onClick={() => setOpen(!open)}>
-        {node.children.length > 0 ? <span className="caret">{open ? '▾' : '▸'}</span> : <span className="caret" />}
+    <div className={`tree-node${isRoot ? ' tree-root' : ''}`}>
+      {open && node.children.length > 0 && (
+        <div className="tree-children">
+          {node.children.map((c, i) => (
+            <TreeView key={i} node={c} purity={purity} parent={node.item} />
+          ))}
+        </div>
+      )}
+      <div className={`tree-head${isRoot ? ' target-line' : ''}`} onClick={() => setOpen(!open)}>
+        {node.children.length > 0 ? <span className="caret">{open ? '▴' : '▸'}</span> : <span className="caret">•</span>}
+        {isRoot && <span className="target-mark">★ </span>}
         <b>{itemName(node.item)}</b> <Rate v={node.rate} />
         {m && (
           <span className="muted">
@@ -282,14 +334,8 @@ function TreeView({ node, purity }: { node: TreeNode; purity: Purity }) {
           </span>
         )}
         {!node.recipe && <span className="muted"> · Import</span>}
+        {parent && <span className="tree-to"> → {itemName(parent)}</span>}
       </div>
-      {open && node.children.length > 0 && (
-        <div className="tree-children">
-          {node.children.map((c, i) => (
-            <TreeView key={i} node={c} purity={purity} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
